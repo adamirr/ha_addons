@@ -1,0 +1,28 @@
+name: "HA Skill"
+description: "Use AWS to send Alexa skill requests to HomeAssistant"
+version: "1.0.0"
+slug: "ha_skill"
+init: false
+homeassistant_api: true
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: services
+options:
+  "AWS Access Key": null
+  "AWS Secret Key": null
+  "AWS Region":
+    - us-east-1
+    - us-west-2
+    - eu-west-1
+  "Alexa Skill Id": null
+  "CloudFormation Stack Name": HASkill
+schema:
+  "AWS Access Key": str
+  "AWS Secret Key": password
+  "AWS Region": list(us-east-1|us-west-2|eu-west-1)
+  "Alexa Skill Id": "match(^amzn1\\.ask\\.skill\\..+$)"
+  "CloudFormation Stack Name": str

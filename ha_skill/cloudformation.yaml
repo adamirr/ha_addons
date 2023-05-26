@@ -1,0 +1,285 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Provisions necessary resources for running HA Skill addon for HomeAssistant
+
+Parameters:
+  AlexaSkillId:
+    Type: String
+  HASkillResourcePrefix:
+    Type: String
+    Default: ha-skill
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+
+Outputs:
+  AlexaEndpoint:
+    Description: ARN to use as the Alexa `Default endpoint`
+    Value:
+      Fn::GetAtt: [AlexaHandlerLambdaFunction, Arn]
+  AccessTokenUri:
+    Description: URL to use as the `Access Token URI`
+    Value:
+      Fn::Sub: "${AuthHandlerLambdaUrl.FunctionUrl}token"
+  AuthorizationUri:
+    Description: URL to use as the `Authorization URI`
+    Value:
+      Fn::Sub: "${AuthHandlerLambdaUrl.FunctionUrl}authorization"
+
+Resources:
+  AlexaHandlerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSPerms
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: SQSRequestQueuePermissions
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource:
+                  - Fn::GetAtt: [RequestQueue, Arn]
+              - Sid: SQSResponseQueuePermissions
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                Resource:
+                  - Fn::GetAtt: [ResponseQueue, Arn]
+
+  AlexaHandlerLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - AlexaHandlerLambdaFunctionLogs
+    Properties:
+      FunctionName:
+        Ref: HASkillResourcePrefix
+      Description: LambdaFunction for an Alexa skill to integrate with Home Assistant via HASkill addon
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import os
+          import json
+          import logging
+          import urllib3
+          import boto3
+          import uuid
+
+          _debug = bool(os.environ.get('DEBUG'))
+
+          _logger = logging.getLogger('ha-skill')
+          _logger.setLevel(logging.DEBUG if _debug else logging.INFO)
+
+          sqs = boto3.resource('sqs')
+          request_queue_url = os.getenv('RequestQueue')
+          request_queue = sqs.Queue(request_queue_url)
+          response_queue_url = os.getenv('ResponseQueue')
+          response_queue = sqs.Queue(response_queue_url)
+
+          _logger.debug(f"Found request queue {request_queue_url}")
+          _logger.debug(f"Found response queue {response_queue_url}")
+
+          def handler(event, context):
+            """Handle incoming Alexa directive."""
+            
+            _logger.debug('Event: %s', event)
+
+            group_id = str(uuid.uuid4())
+            payload = {
+                'body': json.dumps(event),
+                'response_queue': response_queue_url,
+                'group_id': group_id
+            }
+            message_body = json.dumps(payload)
+            _logger.debug(f"Sending message_body {message_body}")
+            request_queue.send_message(MessageBody=message_body, MessageGroupId=group_id)
+            
+            response_messages = response_queue.receive_messages(MaxNumberOfMessages=10, WaitTimeSeconds=3, AttributeNames=['MessageGroupId'])
+            for m in response_messages:
+              _logger.debug(f'Received message {m}')
+              if m.attributes['MessageGroupId'] == group_id:
+                response_body = json.loads(m.body)
+                _logger.debug(f'Received message with body {response_body}')
+                m.delete()
+                if response_body['status'] >= 400:
+                  return {
+                      'event': {
+                          'payload': {
+                              'type': 'INVALID_AUTHORIZATION_CREDENTIAL' 
+                                      if response_body['status'] in (401, 403) else 'INTERNAL_ERROR',
+                              'message': response_body['data']
+                          }
+                      }
+                  }
+                else:
+                  return json.loads(response_body['data'])
+            raise Exception("No response received")
+
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 10
+      ReservedConcurrentExecutions: 1
+      Role:
+        Fn::GetAtt: [AlexaHandlerLambdaRole, Arn]
+      Environment:
+        Variables:
+          RequestQueue:
+            Ref: RequestQueue
+          ResponseQueue:
+            Ref: ResponseQueue
+          DEBUG: False
+
+  AlexaSkillPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      EventSourceToken:
+        Ref: AlexaSkillId
+      FunctionName:
+        Ref: AlexaHandlerLambdaFunction
+      Principal: "alexa-connectedhome.amazon.com"
+
+  AlexaHandlerLambdaFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: "/aws/lambda/${HASkillResourcePrefix}"
+      RetentionInDays:
+        Ref: LogRetentionDays
+
+  RequestQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::Sub: "${HASkillResourcePrefix}-requests.fifo"
+      MessageRetentionPeriod: 60
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 20
+      FifoQueue: true
+      ContentBasedDeduplication: true
+
+  ResponseQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::Sub: "${HASkillResourcePrefix}-reponses.fifo"
+      MessageRetentionPeriod: 60
+      VisibilityTimeout: 60
+      ReceiveMessageWaitTimeSeconds: 20
+      FifoQueue: true
+      ContentBasedDeduplication: true
+
+  AuthHandlerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Path: /
+
+  AuthHandlerLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - AuthHandlerLambdaLogs
+    Properties:
+      FunctionName:
+        Fn::Sub: "${HASkillResourcePrefix}-auth-handler"
+      Description: LambdaFunction to generate dummy auth token to integrate with Home Assistant via HASkill addon
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import os
+
+          _debug = bool(os.environ.get('DEBUG'))
+
+          _logger = logging.getLogger('ha-skill-auth-handler')
+          _logger.setLevel(logging.DEBUG if _debug else logging.INFO)
+
+          def handler(event, context):
+            _logger.debug('Event: %s', event)
+            raw_path = event['rawPath']
+
+            if raw_path == '/token':
+              response = {
+                "statusCode": 200,
+                "body": json.dumps({
+                  "access_token": "UNUSED",
+                  "expires_in": 1800,
+                  "refresh_token": "UNUSED",
+                  "token_type": "Bearer"
+                })
+              }
+            elif raw_path == '/authorization':
+              redirect_uri = event['queryStringParameters']['redirect_uri']
+              state = event['queryStringParameters']['state']
+              response = {
+                "statusCode": 302,
+                "headers": {
+                  "Location": f"{redirect_uri}?state={state}&code=UNUSED"
+                }
+              }
+            else:
+              response = {
+                "statusCode": 403
+              }
+            _logger.debug('Response: %s', response)
+            return response
+
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 10
+      Role:
+        Fn::GetAtt: [AuthHandlerLambdaRole, Arn]
+      Environment:
+        Variables:
+          DEBUG: False
+
+  AuthHandlerLambdaPermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionUrlAuthType: NONE
+      FunctionName:
+        Ref: AuthHandlerLambdaFunction
+      Principal: "*"
+
+  AuthHandlerLambdaUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      Cors:
+        AllowOrigins: ["*"]
+        AllowMethods: ["*"]
+      TargetFunctionArn:
+        Fn::GetAtt: [AuthHandlerLambdaFunction, Arn]
+
+  AuthHandlerLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: "/aws/lambda/${HASkillResourcePrefix}-auth-handler"
+      RetentionInDays:
+        Ref: LogRetentionDays
