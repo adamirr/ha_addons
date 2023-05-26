@@ -1,0 +1,4 @@
+# https://developers.home-assistant.io/docs/add-ons/repository#repository-configuration
+name: Adamirr's Home Assistant Add-ons
+url: "https://github.com/adamirr/ha_addons"
+maintainer: adamirr
