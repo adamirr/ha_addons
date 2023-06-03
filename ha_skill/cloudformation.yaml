@@ -131,7 +131,6 @@ Resources:
       Handler: index.handler
       MemorySize: 128
       Timeout: 10
-      ReservedConcurrentExecutions: 1
       Role:
         Fn::GetAtt: [AlexaHandlerLambdaRole, Arn]
       Environment:
