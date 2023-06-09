@@ -80,7 +80,7 @@ Resources:
           import uuid
           import re
 
-          _debug = bool(os.environ.get('DEBUG'))
+          _debug = os.environ.get('DEBUG', '').lower() == 'true'
 
           _logger = logging.getLogger('ha-skill')
           _logger.setLevel(logging.DEBUG if _debug else logging.INFO)
@@ -225,7 +225,7 @@ Resources:
           import logging
           import os
 
-          _debug = bool(os.environ.get('DEBUG'))
+          _debug = os.environ.get('DEBUG').lower() == 'true'
 
           _logger = logging.getLogger('ha-skill-auth-handler')
           _logger.setLevel(logging.DEBUG if _debug else logging.INFO)

@@ -114,8 +114,8 @@ def poll_for_work(session):
         }
 
         if (ha_response.status != 200):
-            log.warn(f'SQS Payload: {payload}')
-            log.warn(f'Got HA response {response_payload}')
+            log.warning(f'SQS Payload: {payload}')
+            log.warning(f'Got HA response {response_payload}')
 
         response_queue.send_message(MessageBody=json.dumps(response_payload), MessageGroupId=group_id)
         m.delete()
