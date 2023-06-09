@@ -57,8 +57,9 @@ Resources:
                 Action:
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
+                  - sqs:CreateQueue
                 Resource:
-                  - Fn::GetAtt: [ResponseQueue, Arn]
+                  - Fn::Sub: arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${HASkillResourcePrefix}-responses-*.fifo
 
   AlexaHandlerLambdaFunction:
     Type: AWS::Lambda::Function
@@ -77,6 +78,7 @@ Resources:
           import urllib3
           import boto3
           import uuid
+          import re
 
           _debug = bool(os.environ.get('DEBUG'))
 
@@ -86,16 +88,38 @@ Resources:
           sqs = boto3.resource('sqs')
           request_queue_url = os.getenv('RequestQueue')
           request_queue = sqs.Queue(request_queue_url)
-          response_queue_url = os.getenv('ResponseQueue')
-          response_queue = sqs.Queue(response_queue_url)
+
+          response_queue_name_format = os.getenv('ResponseQueueNameFormat')
 
           _logger.debug(f"Found request queue {request_queue_url}")
-          _logger.debug(f"Found response queue {response_queue_url}")
+
+          response_queue_url = None
+          response_queue = None
 
           def handler(event, context):
             """Handle incoming Alexa directive."""
+            global response_queue_url
+            global response_queue
             
             _logger.debug('Event: %s', event)
+            _logger.debug('Context: %s', context)
+
+            if not response_queue_url or not response_queue:
+              queue_id = re.sub('[^A-Za-z0-9]', '_', context.log_stream_name)
+              _logger.info(f"Creating a new Response SQS Queue with id {queue_id}")
+              response_queue_url = sqs.create_queue(
+                QueueName=response_queue_name_format.format(queue_id=queue_id),
+                Attributes={
+                  'MessageRetentionPeriod': '60',
+                  'VisibilityTimeout': '60',
+                  'ReceiveMessageWaitTimeSeconds': '20',
+                  'FifoQueue': 'true',
+                  'ContentBasedDeduplication': 'true'
+                }
+              ).url
+              _logger.info(f"Created a new Response SQS Queue {response_queue_url}")
+              response_queue = sqs.Queue(response_queue_url)
+            _logger.debug(f"Using response queue {response_queue_url}")
 
             group_id = str(uuid.uuid4())
             payload = {
@@ -137,8 +161,8 @@ Resources:
         Variables:
           RequestQueue:
             Ref: RequestQueue
-          ResponseQueue:
-            Ref: ResponseQueue
+          ResponseQueueNameFormat:
+            Fn::Sub: ${HASkillResourcePrefix}-responses-{queue_id}.fifo
           DEBUG: False
 
   AlexaSkillPermission:
@@ -164,17 +188,6 @@ Resources:
     Properties:
       QueueName:
         Fn::Sub: "${HASkillResourcePrefix}-requests.fifo"
-      MessageRetentionPeriod: 60
-      VisibilityTimeout: 60
-      ReceiveMessageWaitTimeSeconds: 20
-      FifoQueue: true
-      ContentBasedDeduplication: true
-
-  ResponseQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName:
-        Fn::Sub: "${HASkillResourcePrefix}-reponses.fifo"
       MessageRetentionPeriod: 60
       VisibilityTimeout: 60
       ReceiveMessageWaitTimeSeconds: 20
