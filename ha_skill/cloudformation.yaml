@@ -10,6 +10,9 @@ Parameters:
   LogRetentionDays:
     Type: Number
     Default: 7
+  Debug:
+    Type: String
+    Default: "false"
 
 Outputs:
   AlexaEndpoint:
@@ -163,7 +166,8 @@ Resources:
             Ref: RequestQueue
           ResponseQueueNameFormat:
             Fn::Sub: ${HASkillResourcePrefix}-responses-{queue_id}.fifo
-          DEBUG: False
+          DEBUG:
+            Ref: Debug
 
   AlexaSkillPermission:
     Type: AWS::Lambda::Permission
@@ -267,7 +271,8 @@ Resources:
         Fn::GetAtt: [AuthHandlerLambdaRole, Arn]
       Environment:
         Variables:
-          DEBUG: False
+          DEBUG:
+            Ref: Debug
 
   AuthHandlerLambdaPermissions:
     Type: AWS::Lambda::Permission

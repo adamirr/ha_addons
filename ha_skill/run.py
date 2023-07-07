@@ -112,7 +112,7 @@ def poll_for_work(session):
             'data': ha_response.data.decode('utf-8'),
             'group_id': group_id
         }
-
+        log.debug(f'Sending response payload {response_payload}')
         if (ha_response.status != 200):
             log.warning(f'SQS Payload: {payload}')
             log.warning(f'Got HA response {response_payload}')
@@ -123,7 +123,12 @@ def poll_for_work(session):
 if __name__ == '__main__':
     with open('/data/options.json') as f:
         options = json.load(f)
-    log.debug(f'Loaded options {options}')
+        if (options.get("Debug") == True):
+            log.setLevel(logging.DEBUG)
+    loggable_options = dict(options)
+    if ('AWS Secret Key' in loggable_options):
+        loggable_options['AWS Secret Key'] = '*****'
+    log.debug(f'Loaded options {loggable_options}')
 
     session = boto3.Session(
                         region_name=options['AWS Region'],
@@ -131,7 +136,8 @@ if __name__ == '__main__':
                         aws_secret_access_key=options['AWS Secret Key'])
 
     stack_params = {
-        'AlexaSkillId': options['Alexa Skill Id']
+        'AlexaSkillId': options['Alexa Skill Id'],
+        'Debug': str(options.get('Debug', False))
     }
     handle_cloudformation_stack(session, options['CloudFormation Stack Name'], stack_params=stack_params)
     poll_for_work(session)
