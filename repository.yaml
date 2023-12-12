@@ -1,4 +1,4 @@
 # https://developers.home-assistant.io/docs/add-ons/repository#repository-configuration
-name: Adamirr's Home Assistant Add-ons
-url: "https://github.com/adamirr/ha_addons"
-maintainer: adamirr
+name: Alexa Integration Test
+url: "https://github.com/applebee1558/ha_addons/tree/patch-1"
+maintainer: adamirr applebee
