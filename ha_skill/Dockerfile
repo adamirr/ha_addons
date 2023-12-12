@@ -2,9 +2,7 @@ ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 # Install requirements for add-on
-RUN apk add --no-cache python3 py3-pip
-RUN pip3 install --upgrade pip
-RUN pip3 install --no-cache-dir requests boto3
+RUN apk add --no-cache python3 py3-pip py3-requests py3-boto3
 
 # Copy data for add-on
 COPY run.py /
