@@ -5,6 +5,7 @@ import logging
 import os
 import requests
 import sys
+import time
 import urllib3
 import uuid
 
@@ -75,13 +76,19 @@ def poll_for_work(session):
         timeout=urllib3.Timeout(connect=2.0, read=5.0)
     )
 
-    log.debug(f'Environment: {os.environ}')
     token = os.environ.get('SUPERVISOR_TOKEN')
     assert token is not None
 
     log.info(f'Polling for work from {QUEUE_NAME}...')
     while True:
-        messages = request_queue.receive_messages(MaxNumberOfMessages=1, AttributeNames=['MessageGroupId'])
+        try:
+            messages = request_queue.receive_messages(MaxNumberOfMessages=1, AttributeNames=['MessageGroupId'])
+        except Exception as e:
+            log.warning(f'Error polling for messages. Waiting 1 minute to try again. {e}')
+            log.debug('Error:', exc_info=True)
+            time.sleep(60)
+            continue
+
         log.debug(f'Recieved response {messages}')
         if not messages:
             continue
