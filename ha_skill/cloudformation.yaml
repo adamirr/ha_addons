@@ -82,6 +82,7 @@ Resources:
           import boto3
           import uuid
           import re
+          import datetime
 
           _debug = os.environ.get('DEBUG', '').lower() == 'true'
 
@@ -117,7 +118,7 @@ Resources:
                   'VisibilityTimeout': '60',
                   'ReceiveMessageWaitTimeSeconds': '20',
                   'FifoQueue': 'true',
-                  'ContentBasedDeduplication': 'true'
+                  'ContentBasedDeduplication': 'false'
                 }
               ).url
               _logger.info(f"Created a new Response SQS Queue {response_queue_url}")
@@ -134,26 +135,44 @@ Resources:
             _logger.debug(f"Sending message_body {message_body}")
             request_queue.send_message(MessageBody=message_body, MessageGroupId=group_id)
             
-            response_messages = response_queue.receive_messages(MaxNumberOfMessages=10, WaitTimeSeconds=3, AttributeNames=['MessageGroupId'])
-            for m in response_messages:
-              _logger.debug(f'Received message {m}')
-              if m.attributes['MessageGroupId'] == group_id:
-                response_body = json.loads(m.body)
-                _logger.debug(f'Received message with body {response_body}')
-                m.delete()
-                if response_body['status'] >= 400:
-                  return {
-                      'event': {
-                          'payload': {
-                              'type': 'INVALID_AUTHORIZATION_CREDENTIAL' 
-                                      if response_body['status'] in (401, 403) else 'INTERNAL_ERROR',
-                              'message': response_body['data']
-                          }
+            max_wait_time = 3 # seconds
+            start = datetime.datetime.now()
+            valid_messages = []
+            expected_part_count = -1
+
+            wait_time = max_wait_time
+            while wait_time > 0 and len(valid_messages) != expected_part_count:
+              _logger.debug(f'Wait is set to {wait_time} seconds')
+              response_messages = response_queue.receive_messages(MaxNumberOfMessages=10, WaitTimeSeconds=wait_time, AttributeNames=['MessageGroupId'], MessageAttributeNames=['part_number', 'total_parts'])
+              _logger.debug(f'Received {len(response_messages)} messages: {response_messages}')
+              for m in response_messages:
+                _logger.debug(f'Received message {m} with message_attributes {m.message_attributes}')
+                if m.attributes['MessageGroupId'] == group_id:
+                  valid_messages.append(m)
+                  expected_part_count = max(expected_part_count, int(m.message_attributes['total_parts']['StringValue']))
+                  _logger.debug(f'{len(valid_messages)} out of {expected_part_count} found')
+                  m.delete()
+              wait_time = max(0, int(max_wait_time - (datetime.datetime.now() - start).total_seconds()))
+
+            if len(valid_messages) != expected_part_count:
+              raise Exception(f'Incomplete response retrieved. Got {len(valid_messages)} out of {expected_part_count} parts')
+
+            sorted_messages = sorted(valid_messages, key=lambda m: int(m.message_attributes['part_number']['StringValue']))
+            response_body = json.loads(''.join([m.body for m in sorted_messages]))
+            _logger.debug(f'Received message with body {response_body}')
+
+            if response_body['status'] >= 400:
+              return {
+                  'event': {
+                      'payload': {
+                          'type': 'INVALID_AUTHORIZATION_CREDENTIAL'
+                                  if response_body['status'] in (401, 403) else 'INTERNAL_ERROR',
+                          'message': response_body['data']
                       }
                   }
-                else:
-                  return json.loads(response_body['data'])
-            raise Exception("No response received")
+              }
+            else:
+              return json.loads(response_body['data'])
 
       Handler: index.handler
       MemorySize: 128

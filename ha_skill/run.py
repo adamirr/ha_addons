@@ -1,5 +1,6 @@
 import boto3
 import botocore
+import hashlib
 import json
 import logging
 import os
@@ -15,6 +16,10 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 log = logging.getLogger('ha-skill')
+
+# Max size is 256KiB (some buffer for MessageAttributes)
+# https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html
+MAX_MESSAGE_SIZE = 256000
 
 # TODO: read from CloudFormation outputs
 QUEUE_NAME = 'ha-skill-requests.fifo'
@@ -124,8 +129,34 @@ def poll_for_work(session):
             log.warning(f'SQS Payload: {payload}')
             log.warning(f'Got HA response {response_payload}')
 
-        response_queue.send_message(MessageBody=json.dumps(response_payload), MessageGroupId=group_id)
+        message_body = json.dumps(response_payload)
+        log.debug(f'Message response is {len(message_body)} bytes')
+        message_body_hash = hashlib.sha256(message_body.encode('utf-8')).hexdigest()
+        message_parts = split_string_for_sqs(message_body)
+        log.debug(f'Sending reponse in {len(message_parts)} parts')
+        for i in range(len(message_parts)):
+            message_attributes = {
+                'part_number': {
+                    'StringValue': f'{i+1}',
+                    'DataType': 'Number',
+                },
+                'total_parts': {
+                    'StringValue': f'{len(message_parts)}',
+                    'DataType': 'Number',
+                }
+            }
+            deduplication_id = '-'.join([message_body_hash, group_id, str(i)])
+
+            log.debug(f'Sending part {i}. Attributes: {message_attributes}, body size: {len(message_parts[i])} deduplication_id: {deduplication_id}')
+            response_queue.send_message(MessageBody=message_parts[i], MessageGroupId=group_id, MessageDeduplicationId=deduplication_id, MessageAttributes=message_attributes)
+
         m.delete()
+
+def split_string_for_sqs(s):
+    chunks = []
+    for i in range(0, len(s), MAX_MESSAGE_SIZE):
+        chunks.append(s[i:i+MAX_MESSAGE_SIZE])
+    return chunks
 
 if __name__ == '__main__':
     with open('/data/options.json') as f:
