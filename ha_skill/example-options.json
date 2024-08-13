@@ -1,0 +1,10 @@
+{
+    "AWS Access Key": "ASDADFADSF32897438342",
+    "AWS Secret Key": "fjdfsljkasdfjklsafdkjlasfdkljjsfdklsj",
+    "AWS Region":"eu-west-1",  
+    "Alexa Skill Id": "amzn1.asl.skill.6546564545-4544-4455-4554-4514545a1c",
+    "CloudFormation Stack Name": "HASkill",
+    "Debug": true,
+    "HA Base URL":"https://myha.mydomain.com",
+    "HA Token":"dsdsakjdwkljakjjajhgJHhas2jdhFIDKJNHDSKFDSJHKhjkajshdHJDFJHHD34SFJKGDSHKSALJKAHS32h3jhawpsdasa"
+}

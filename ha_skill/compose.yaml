@@ -1,0 +1,9 @@
+services:
+  ha-alexa-skill:
+    image: ha-alexa-skill
+    build:
+      context: .
+      dockerfile: Dockerfile_standalone
+    restart: unless-stopped
+    volumes:
+      - ./options.json:/data/options.json

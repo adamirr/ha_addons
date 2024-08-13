@@ -11,3 +11,11 @@ Skill and to create an AWS account and create bootstrap IAM credentials. All AWS
 usage will fit in the [always free tier](https://aws.amazon.com/free/?awsf.Free%20Tier%20Types=tier%23always-free).
 
 See DOCS.md for setup instructions.
+
+## Docker standalone mode
+If you want to use this addon, but you are running HomeAssistant as a Docker container, you can do the following steps:
+1. Create a Long Lived Access Token in HomeAssistant
+1. Clone this repo
+1. `cd ha_addons/ha_skill/`
+1. Rename the `example-options.json` file to `options.json` and paste in your informations
+1. You can start the container with: `docker compose up -d`

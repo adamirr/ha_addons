@@ -73,7 +73,7 @@ def handle_cloudformation_stack(session, stack_name, stack_params={}):
     log.info(f'Stack has outputs\n{json.dumps(outputs, indent=2)}')
 
 
-def poll_for_work(session):
+def poll_for_work(session,options):
     sqs = session.resource('sqs')
     request_queue = sqs.get_queue_by_name(QueueName=QUEUE_NAME)
 
@@ -82,8 +82,15 @@ def poll_for_work(session):
     )
 
     token = os.environ.get('SUPERVISOR_TOKEN')
+    if 'HA Token' in options:
+        token=options['HA Token']
     assert token is not None
 
+    request_url = 'http://supervisor/core/api/alexa/smart_home'
+    if 'HA Base URL' in options:
+        request_url=os.path.join(options['HA Base URL'],'api/alexa/smart_home')
+    log.debug(f'request_url: "{request_url}"')    
+        
     log.info(f'Polling for work from {QUEUE_NAME}...')
     while True:
         try:
@@ -106,7 +113,6 @@ def poll_for_work(session):
         response_queue = sqs.Queue(payload['response_queue'])
         group_id = m.attributes['MessageGroupId']
 
-        request_url = 'http://supervisor/core/api/alexa/smart_home'
         headers = {
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json',
@@ -178,4 +184,4 @@ if __name__ == '__main__':
         'Debug': str(options.get('Debug', False))
     }
     handle_cloudformation_stack(session, options['CloudFormation Stack Name'], stack_params=stack_params)
-    poll_for_work(session)
+    poll_for_work(session,options)
